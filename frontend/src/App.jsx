@@ -1,14 +1,22 @@
 import { useEffect, useState } from 'react';
 import { ArrowLeft, Boxes, LockKeyhole, Mail, ShieldAlert, UserRound } from 'lucide-react';
 import Dashboard from './Dashboard.jsx';
+import ThemeToggle from './ThemeToggle.jsx';
 import { api, clearSession, readUser, saveSession } from './api.js';
 
 export default function App() {
   const [user, setUser] = useState(readUser);
+  const [theme, setTheme] = useState(() => localStorage.getItem('stockroom-theme') === 'dark' ? 'dark' : 'light');
+  const [demoMode, setDemoMode] = useState(false);
   const [mode, setMode] = useState('login');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [accessDenied, setAccessDenied] = useState(window.location.pathname === '/unauthorized');
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem('stockroom-theme', theme);
+  }, [theme]);
 
   useEffect(() => {
     const showAccessDenied = () => {
@@ -47,6 +55,19 @@ export default function App() {
     );
   }
 
+  if (demoMode) {
+    return (
+      <Dashboard
+        user={{ _id: 'demo-user-admin', name: 'Ayesha Khan', email: 'ayesha@example.com', role: 'admin' }}
+        onUserChange={setUser}
+        onLogout={() => setDemoMode(false)}
+        theme={theme}
+        onToggleTheme={() => setTheme((current) => current === 'light' ? 'dark' : 'light')}
+        isDemoMode
+      />
+    );
+  }
+
   async function submit(event) {
     event.preventDefault();
     setBusy(true);
@@ -68,15 +89,26 @@ export default function App() {
   }
 
   if (user && localStorage.getItem('warehouse-token')) {
-    return <Dashboard user={user} onUserChange={setUser} onLogout={() => { clearSession(); setUser(null); }} />;
+    return (
+      <Dashboard
+        user={user}
+        onUserChange={setUser}
+        onLogout={() => { clearSession(); setUser(null); }}
+        theme={theme}
+        onToggleTheme={() => setTheme((current) => current === 'light' ? 'dark' : 'light')}
+      />
+    );
   }
 
   return (
     <main className="auth-page">
       <section className="auth-card">
-        <div className="brand-lockup">
-          <div className="brand-mark"><Boxes size={23} /></div>
-          <div><strong>stockroom</strong><span>WAREHOUSE OPERATIONS</span></div>
+        <div className="auth-brand-row">
+          <div className="brand-lockup">
+            <div className="brand-mark"><Boxes size={23} /></div>
+            <div><strong>stockroom</strong><span>WAREHOUSE OPERATIONS</span></div>
+          </div>
+          <ThemeToggle theme={theme} onToggle={() => setTheme((current) => current === 'light' ? 'dark' : 'light')} />
         </div>
         <div className="auth-intro">
           <div className="eyebrow">YOUR INVENTORY, IN CONTROL</div>
@@ -107,6 +139,9 @@ export default function App() {
             {mode === 'login' ? 'Create account' : 'Sign in'}
           </button>
         </div>
+        <button className="demo-link" type="button" onClick={() => setDemoMode(true)}>
+          <span>Explore the demo workspace</span><span aria-hidden="true">→</span>
+        </button>
         <div className="auth-footnote">Account role is assigned securely by your workspace administrator.</div>
       </section>
       <div className="auth-aside">

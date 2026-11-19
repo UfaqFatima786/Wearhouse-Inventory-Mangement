@@ -8,6 +8,8 @@ import {
 import { Bar, Doughnut, Line } from 'react-chartjs-2';
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Tooltip, Legend, Filler } from 'chart.js';
 import { api, uploadImage } from './api.js';
+import ThemeToggle from './ThemeToggle.jsx';
+import { demoData } from './demoData.js';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Tooltip, Legend, Filler);
 
@@ -157,7 +159,7 @@ async function downloadInvoice(order) {
   doc.save(`${order.orderNumber}-invoice.pdf`);
 }
 
-export default function Dashboard({ user, onUserChange, onLogout }) {
+export default function Dashboard({ user, onUserChange, onLogout, theme, onToggleTheme, isDemoMode = false }) {
   const [section, setSection] = useState('overview');
   const [collapsed, setCollapsed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -167,7 +169,7 @@ export default function Dashboard({ user, onUserChange, onLogout }) {
   const [query, setQuery] = useState('');
   const [filters, setFilters] = useState({ category: '', supplier: '', warehouse: '', availability: '' });
   const [scannerOpen, setScannerOpen] = useState(false);
-  const [data, setData] = useState({
+  const [data, setData] = useState(() => isDemoMode ? demoData : {
     dashboard: { stats: {}, charts: { sales: [], stockMovement: [], topProducts: [] }, lowStockItems: [], activity: [] },
     products: [], stock: [], lowStock: [], warehouses: [], orders: [], users: [], transactions: [], requests: [], activity: []
   });
@@ -207,8 +209,9 @@ export default function Dashboard({ user, onUserChange, onLogout }) {
   }, [user.role]);
 
   useEffect(() => {
+    if (isDemoMode) return;
     refresh().catch((error) => notify(messageOf(error), 'error'));
-  }, [refresh, notify]);
+  }, [refresh, notify, isDemoMode]);
 
   const categories = useMemo(() => [...new Set(data.products.map((item) => item.category).filter(Boolean))].sort(), [data.products]);
   const suppliers = useMemo(() => data.users.filter((item) => item.role === 'supplier'), [data.users]);
@@ -226,6 +229,10 @@ export default function Dashboard({ user, onUserChange, onLogout }) {
   }), [data.products, filters, query]);
 
   async function submitAction(action, successMessage) {
+    if (isDemoMode) {
+      notify('Demo preview is read-only. Sign in to save changes.', 'info');
+      return false;
+    }
     setBusy(true);
     try {
       const result = await action();
@@ -274,7 +281,7 @@ export default function Dashboard({ user, onUserChange, onLogout }) {
 
   const selectedLabel = activeNav?.label || 'Overview';
   return (
-    <div className={`app-shell ${collapsed ? 'sidebar-collapsed' : ''}`}>
+    <div className={`app-shell ${collapsed ? 'sidebar-collapsed' : ''} ${isDemoMode ? 'demo-mode' : ''}`}>
       <aside className="sidebar">
         <div className="sidebar-brand">
           <div className="brand-mark"><Boxes size={21} /></div>
@@ -303,11 +310,12 @@ export default function Dashboard({ user, onUserChange, onLogout }) {
       <main className="main-panel">
         <header className="topbar">
           <div className="breadcrumbs"><span>Workspace</span><span className="crumb-slash">/</span><strong>{selectedLabel}</strong></div>
-          <div className="topbar-actions"><div className="date-chip">{new Date().toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</div><button className="icon-button notification-button" aria-label="Notifications" onClick={() => changeSection(user.role === 'supplier' ? 'supplies' : 'inventory')}><Bell size={18} />{data.lowStock.length > 0 && <i />}</button><div className="avatar small">{user.image ? <img src={user.image} alt="" /> : user.name?.slice(0, 1).toUpperCase()}</div></div>
+          <div className="topbar-actions"><ThemeToggle theme={theme} onToggle={onToggleTheme} /><div className="date-chip">{new Date().toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</div><button className="icon-button notification-button" aria-label="Notifications" onClick={() => changeSection(user.role === 'supplier' ? 'supplies' : 'inventory')}><Bell size={18} />{data.lowStock.length > 0 && <i />}</button><div className="avatar small">{user.image ? <img src={user.image} alt="" /> : user.name?.slice(0, 1).toUpperCase()}</div></div>
         </header>
         <div className="page-content">
+          {isDemoMode && <div className="demo-banner"><span className="demo-banner-icon"><ChartNoAxesCombined size={18} /></span><div><strong>Demo workspace</strong><span>Sample inventory data · changes are not saved</span></div><button className="demo-exit" onClick={onLogout}>Exit preview</button></div>}
           <Notice notice={notice} dismiss={() => setNotice(null)} />
-          {section === 'overview' && <Overview user={user} data={data} onNavigate={changeSection} />}
+          {section === 'overview' && <Overview user={user} data={data} onNavigate={changeSection} theme={theme} />}
           {section === 'products' && <ProductsPage products={visibleProducts} allProducts={data.products} query={query} setQuery={setQuery} filters={filters} setFilters={setFilters} categories={categories} suppliers={suppliers} warehouses={data.warehouses} user={user} onCreate={() => { setEditing(null); setModal('product'); }} onEdit={(item) => { setEditing(item); setModal('product'); }} onDelete={(item) => deleteRecord('product', item)} onScan={() => setScannerOpen(true)} />}
           {section === 'inventory' && <InventoryPage data={data} user={user} onCreate={(type) => { setEditing(null); setModal(type); }} />}
           {section === 'warehouses' && <WarehousesPage data={data} user={user} onCreate={() => { setEditing(null); setModal('warehouse'); }} onEdit={(item) => { setEditing(item); setModal('warehouse'); }} onDelete={(item) => deleteRecord('warehouse', item)} />}
@@ -359,7 +367,7 @@ function PageTitle({ eyebrow = 'WORKSPACE', title, description, actions }) {
   return <div className="page-title"><div><span className="eyebrow">{eyebrow}</span><h1>{title}</h1><p>{description}</p></div>{actions && <div className="title-actions">{actions}</div>}</div>;
 }
 
-function Overview({ user, data, onNavigate }) {
+function Overview({ user, data, onNavigate, theme }) {
   const { stats = {}, charts = {}, lowStockItems = [], activity = [] } = data.dashboard || {};
   const labels = monthNames;
   const salesMap = new Map((charts.sales || []).map((item) => [item._id, item]));
@@ -407,15 +415,22 @@ function Overview({ user, data, onNavigate }) {
       <PageTitle eyebrow="OVERVIEW" title={`Good ${new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 18 ? 'afternoon' : 'evening'}, ${user.name?.split(' ')[0]}.`} description="Here’s what’s happening across your inventory today." actions={<button className="button secondary" onClick={() => onNavigate('inventory')}><SlidersHorizontal size={16} /> View inventory</button>} />
       <div className="metric-grid">{metricItems.map(([label, value, note, icon, tone]) => <Metric key={label} {...{ label, value, note, icon, tone }} />)}</div>
       <div className="analytics-grid">
-        <section className="surface chart-card"><div className="panel-heading"><div><span className="eyebrow">REVENUE</span><h2>Sales performance</h2></div><span className="chart-caption">This year · PKR</span></div><div className="chart-wrap"><Line data={{ labels, datasets: [{ label: 'Completed sales', data: sales, borderColor: '#579b83', backgroundColor: 'rgba(87,155,131,.11)', fill: true, tension: .38, pointRadius: 2, pointHoverRadius: 5 }] }} options={chartOptions(currency.format)} /></div></section>
-        <section className="surface chart-card"><div className="panel-heading"><div><span className="eyebrow">MOVEMENT</span><h2>Stock in & out</h2></div><span className="chart-caption">Units · YTD</span></div><div className="chart-wrap"><Bar data={{ labels, datasets: [{ label: 'Stock in', data: movementIn, backgroundColor: '#8bb8a3', borderRadius: 4 }, { label: 'Stock out', data: movementOut, backgroundColor: '#e8b47d', borderRadius: 4 }] }} options={chartOptions()} /></div></section>
+        <section className="surface chart-card"><div className="panel-heading"><div><span className="eyebrow">REVENUE</span><h2>Sales performance</h2></div><span className="chart-caption">This year · PKR</span></div><div className="chart-wrap"><Line data={{ labels, datasets: [{ label: 'Completed sales', data: sales, borderColor: theme === 'dark' ? '#68d6a5' : '#188f68', backgroundColor: (context) => {
+          const { ctx, chartArea } = context.chart;
+          if (!chartArea) return theme === 'dark' ? 'rgba(104,214,165,.25)' : 'rgba(24,143,104,.2)';
+          const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+          gradient.addColorStop(0, theme === 'dark' ? 'rgba(104,214,165,.42)' : 'rgba(24,143,104,.32)');
+          gradient.addColorStop(1, theme === 'dark' ? 'rgba(104,214,165,.015)' : 'rgba(24,143,104,.015)');
+          return gradient;
+        }, fill: true, tension: .38, borderWidth: 3, pointRadius: 3, pointHoverRadius: 6, pointBackgroundColor: theme === 'dark' ? '#a2f0c8' : '#fff', pointBorderWidth: 2 }] }} options={chartOptions(currency.format, theme)} /></div></section>
+        <section className="surface chart-card"><div className="panel-heading"><div><span className="eyebrow">MOVEMENT</span><h2>Stock in & out</h2></div><span className="chart-caption">Units · YTD</span></div><div className="chart-wrap"><Bar data={{ labels, datasets: [{ label: 'Stock in', data: movementIn, backgroundColor: theme === 'dark' ? '#52c69a' : '#239a72', borderRadius: 6, borderSkipped: false }, { label: 'Stock out', data: movementOut, backgroundColor: theme === 'dark' ? '#f2ad72' : '#e98b45', borderRadius: 6, borderSkipped: false }] }} options={chartOptions(null, theme)} /></div></section>
       </div>
       <div className="lower-grid">
         <section className="surface panel"><div className="panel-heading"><div><span className="eyebrow">ATTENTION</span><h2>Low-stock products</h2></div><button className="text-button" onClick={() => onNavigate('inventory')}>See inventory <span>→</span></button></div>
-          {lowStockItems.length ? <div className="compact-list">{lowStockItems.slice(0, 5).map((row) => <div className="compact-row" key={`${row.product?._id}-${row.warehouse}`}><div className="product-avatar">{row.product?.imageUrl ? <img src={row.product.imageUrl} alt="" /> : <Package size={17} />}</div><div className="compact-main"><strong>{row.product?.name || 'Product'}</strong><span>{row.warehouse?.name || 'Warehouse'} · SKU {row.product?.sku}</span></div><span className="stock-warning">{row.quantity} left</span></div>)}</div> : <EmptyState icon={Check} title="Stock levels look healthy" text="No products are currently below their reorder limit." />}
+          {lowStockItems.length ? <div className="compact-list">{lowStockItems.slice(0, 5).map((row) => <div className="compact-row" key={`${row.product?._id}-${row.warehouse?._id || row.warehouse}`}><div className="product-avatar">{row.product?.imageUrl ? <img src={row.product.imageUrl} alt="" /> : <Package size={17} />}</div><div className="compact-main"><strong>{row.product?.name || 'Product'}</strong><span>{row.warehouse?.name || 'Warehouse'} · SKU {row.product?.sku}</span></div><span className="stock-warning">{row.quantity} left</span></div>)}</div> : <EmptyState icon={Check} title="Stock levels look healthy" text="No products are currently below their reorder limit." />}
         </section>
         <section className="surface panel"><div className="panel-heading"><div><span className="eyebrow">BEST SELLERS</span><h2>Top-selling products</h2></div><ChartNoAxesCombined size={18} className="muted-icon" /></div>
-          {top.length ? <div className="top-product-chart"><Doughnut data={{ labels: top.map((item) => item.name), datasets: [{ data: top.map((item) => item.units), backgroundColor: ['#579b83', '#7895cb', '#e8b47d', '#a88bc9', '#77b9b2'], borderWidth: 0, hoverOffset: 4 }] }} options={{ responsive: true, maintainAspectRatio: false, cutout: '70%', plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 7, padding: 14, color: '#687286', font: { family: 'Inter', size: 10 } } } } }} /></div> : <EmptyState icon={Package} title="No completed sales yet" text="Your best-selling products will show up here." />}
+          {top.length ? <div className="top-product-chart"><Doughnut data={{ labels: top.map((item) => item.name), datasets: [{ data: top.map((item) => item.units), backgroundColor: theme === 'dark' ? ['#56d19c', '#7da9f7', '#ffb86f', '#c19ae8', '#64d2cd'] : ['#168d67', '#5b82d4', '#e88d46', '#9670c5', '#39aaa4'], borderColor: theme === 'dark' ? '#162236' : '#fff', borderWidth: 3, hoverOffset: 8 }] }} options={{ responsive: true, maintainAspectRatio: false, cutout: '68%', plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 8, padding: 15, color: theme === 'dark' ? '#d4deeb' : '#45546a', font: { family: 'Inter', size: 11 } } } } }} /></div> : <EmptyState icon={Package} title="No completed sales yet" text="Your best-selling products will show up here." />}
         </section>
       </div>
       {admin && <section className="surface panel activity-preview"><div className="panel-heading"><div><span className="eyebrow">TEAM ACTIVITY</span><h2>Recent changes</h2></div><button className="text-button" onClick={() => onNavigate('activity')}>View activity <span>→</span></button></div><ActivityRows activity={activity.slice(0, 5)} /></section>}
@@ -423,17 +438,20 @@ function Overview({ user, data, onNavigate }) {
   );
 }
 
-function chartOptions(tickFormat) {
+function chartOptions(tickFormat, theme = 'light') {
+  const dark = theme === 'dark';
+  const tickColor = dark ? '#c1cde0' : '#64748b';
+  const gridColor = dark ? 'rgba(171,190,216,.16)' : 'rgba(87,111,143,.16)';
   return {
     responsive: true, maintainAspectRatio: false,
     interaction: { intersect: false, mode: 'index' },
     plugins: {
-      legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 7, padding: 16, color: '#687286', font: { family: 'Inter', size: 10 } } },
+      legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 8, padding: 16, color: tickColor, font: { family: 'Inter', size: 11 } } },
       tooltip: { callbacks: tickFormat ? { label: (context) => `${context.dataset.label}: ${tickFormat(context.raw)}` } : {} }
     },
     scales: {
-      x: { grid: { display: false }, ticks: { color: '#9299a7', font: { family: 'Inter', size: 10 }, maxTicksLimit: 8 } },
-      y: { beginAtZero: true, grid: { color: '#eff1f4' }, ticks: { color: '#9299a7', font: { family: 'Inter', size: 10 }, callback: tickFormat ? (value) => `${Math.round(value / 1000)}k` : undefined } }
+      x: { grid: { display: false }, ticks: { color: tickColor, font: { family: 'Inter', size: 11 }, maxTicksLimit: 8 } },
+      y: { beginAtZero: true, grid: { color: gridColor }, ticks: { color: tickColor, font: { family: 'Inter', size: 11 }, callback: tickFormat ? (value) => `${Math.round(value / 1000)}k` : undefined } }
     }
   };
 }
